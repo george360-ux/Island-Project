@@ -1,0 +1,723 @@
+---
+title: "Deforestation Dynamics on New Britain, Papua New Guinea (2001–2023)"
+author: "George Acostalemus"
+date: "December 15, 2025"
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    theme: cosmo
+  pdf:
+    toc: true
+execute:
+  warning: false
+  message: false
+---
+
+**Load R packages**
+
+```{r}
+#| include: false
+
+# ---- Core data manipulation ----
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(readxl)
+
+# ---- Spatial data ----
+library(sf)
+library(leaflet)
+library(tmap)
+
+# ---- Visualization ----
+library(ggplot2)
+library(scales)
+library(viridis)
+
+# ---- Animation (used for pre-generated GIFs) ----
+library(gganimate)
+library(gifski)
+
+# ---- Shiny ----
+library(shiny)
+
+```
+
+## Introduction
+
+New Britain is the largest island in the Bismarck Archipelago of Papua New Guinea (PNG) and is divided administratively into two provinces: East New Britain and West New Britain. The island is characterized by extensive tropical forest cover, high biodiversity, and increasing pressure from agricultural expansion, particularly plantation agriculture. Deforestation is the large scale of clearing forest for other land use such as farming, or urban development. One of the key causes are usually wildfires, droughts, or storms while agricultural causes are harvesting for materials.
+
+Deforestation in Papua New Guinea has important implications for biodiversity conservation, carbon storage, and local livelihoods. While national level trends are often reported, sub national patterns of forest loss can vary substantially. Understanding how deforestation has evolved differently across East and West New Britain provides insight into the spatial and temporal dynamics of environmental change on the island.
+
+The purpose of this project is to examine patterns of forest loss on New Britain from 2001 to 2023, with a specific focus on comparing annual and cumulative deforestation trends between East and West New Britain. The analysis emphasizes visualization and interactive exploration to demonstrate the use of R, Quarto, and Shiny for environmental data analysis.
+
+## Data Sources
+
+Multiple publicly available datasets were used in this analysis:
+
+-   **Global Forest Watch (GFW)**: Subnational tree cover loss data (2001–2023), reported annually in hectares. Data were accessed at the provincial (ADM1) level for Papua New Guinea.
+
+-   **Humanitarian Data Exchange (HDX)**: Administrative boundary shapefiles for Papua New Guinea provinces, used to map East and West New Britain.
+
+-   **Baseline Forest Extent**: Forest area in the year 2000 (threshold = 0) from the GFW dataset, used as a reference for normalization.
+
+```{r}
+#| echo: false
+png_provinces <- st_read("geoBoundaries-PNG-ADM1-all/geoBoundaries-PNG-ADM1.shp")
+
+new_britain <- png_provinces %>% 
+  filter(shapeName %in% c("East New Britain Province", "West New Britain Province"))
+
+new_britain <- new_britain %>%
+  mutate(
+    province = str_remove(shapeName, " Province$")
+  )
+```
+
+## Data Processing Methods
+
+<<<<<<< HEAD
+Annual tree cover loss (in hectares) was extracted for East and West New Britain from the Global Forest Watch sub national data set. Data were filtered to include only threshold = 0, corresponding to all tree cover regardless of canopy density.
+=======
+Annual tree cover loss (in hectares) was extracted for East and West New Britain from the Global Forest Watch subnational dataset. Data were filtered to include only threshold = 0, corresponding to all tree cover regardless of canopy density.
+>>>>>>> 98af69dd700820d72fdc75000e5dcb3d1aeb90f9
+
+To allow meaningful comparison between provinces of different sizes, forest loss was analyzed in both absolute terms (hectares) and normalized terms (percentage of baseline forest area). Annual percentage forest loss was calculated by dividing annual loss by baseline forest extent in 2000. Cumulative forest loss was computed as the running sum of annual losses over time.
+
+Administrative boundaries from HDX were harmonized with the forest loss dataset by standardizing province names prior to spatial joins. Choropleth maps were generated using fixed color scales based on the full range of values across all years to ensure temporal comparability.
+
+```{r}
+#| echo: false
+
+# 1. Read the Excel file (adjust path if needed)
+forest_raw <- read_excel("PNG.xlsx",
+                         sheet = "Subnational 1 tree cover loss")
+
+# 2. Keep only East and West New Britain
+forest_nb <- forest_raw %>%
+  filter(subnational1 %in% c("East New Britain", "West New Britain"))
+
+# 3. Keep only threshold = 0 (standard GFW definition)
+forest_nb <- forest_nb %>%
+  filter(threshold == 0)
+
+# 4. Convert from wide format to long format
+forest_long <- forest_nb %>%
+  pivot_longer(
+    cols = starts_with("tc_loss_ha_"),
+    names_to = "year",
+    values_to = "loss_ha"
+  )
+
+# 5. Extract year number from column name
+forest_long <- forest_long %>%
+  mutate(
+    year = str_extract(year, "\\d{4}") %>% as.integer()
+  )
+
+# 6. Rename province column for clarity
+forest_clean <- forest_long %>%
+  rename(province = subnational1) %>%
+  select(province, year, loss_ha) %>%
+  arrange(province, year)
+
+forest_clean
+
+```
+
+```{r}
+#| echo: false
+
+ggplot(forest_clean, aes(x = year, y = loss_ha, color = province)) +
+  geom_line(size = 1.2) +
+  geom_point() +
+  labs(
+    title = "Annual Forest Loss in East and West New Britain (2001–2023)",
+    x = "Year",
+    y = "Forest Loss (hectares)"
+  ) +
+  theme_minimal()
+
+```
+
+This graph shows annual forest loss in East and West New Britain from 2001 to 2023. Over the full study period, West New Britain consistently experienced higher annual forest loss than East New Britain, indicating sustained and comparatively greater deforestation pressure.
+
+Both provinces exhibit substantial year-to-year variability, with several pronounced spikes rather than a smooth trend. West New Britain shows a notable peak around 2015, where annual forest loss exceeds 30,000 hectares, followed by a decline and then renewed increases in the early 2020s. East New Britain also shows episodic increases, including a sharp spike in 2022, suggesting periods of intensified land conversion rather than gradual change.
+
+Despite these fluctuations, the overall pattern indicates that deforestation pressure intensified after approximately 2010 in both provinces, with West New Britain remaining the dominant contributor to forest loss throughout the period.
+
+```{r}
+#| echo: false
+
+forest_2023 <- forest_clean %>%
+  filter(year == 2023)
+
+new_britain_2023 <- new_britain %>%
+  left_join(
+    forest_2023,
+    by = "province"
+  )
+
+# Check 
+new_britain_2023 %>%
+  st_drop_geometry() %>%
+  select(shapeName, year, loss_ha)
+
+
+```
+
+The output of this table quantifies forest loss in 2023 and confirms the visual patterns shown in the figures. West New Britain lost 11,896 hectares of forest in 2023, compared to 7,263 hectares in East New Britain. This represents a difference of more than 4,600 hectares in a single year, underscoring the magnitude of disparity between the two provinces.
+
+Taken together, the table and figures demonstrate that West New Britain not only exhibits higher long-term cumulative forest loss, but also continues to experience higher annual losses in recent years, suggesting that deforestation pressures remain ongoing rather than historical.
+
+```{r}
+#| echo: false
+
+ggplot(new_britain_2023) +
+  geom_sf(aes(fill = loss_ha), color = "black", size = 0.4) +
+  scale_fill_viridis_c(option = "C", direction = -1) +
+  labs(
+    title = "Forest Loss in New Britain (2023)",
+    fill = "Loss (ha)"
+  ) +
+  theme_minimal()
+
+```
+
+This figure is a maps forest loss in New Britain for the year 2023. The spatial pattern reinforces the temporal trends observed in Figure 1. West New Britain exhibits substantially higher forest loss than East New Britain, as indicated by the darker shading across the western portion of the island.
+
+This spatial contrast highlights a clear east–west divide in deforestation intensity. While both provinces experienced forest loss in 2023, loss in West New Britain was more extensive, suggesting stronger or more concentrated land-use pressures in that province during the most recent year of analysis.
+
+Overall, both temporal and spatial analyses indicate persistent and uneven deforestation across New Britain, with West New Britain consistently experiencing greater forest loss than East New Britain, particularly during periods of intensified deforestation activity.
+
+```{r}
+#| echo: false
+
+# Recreate cumulative loss table
+forest_cum_year <- forest_clean %>%
+  arrange(province, year) %>%
+  group_by(province) %>%
+  mutate(
+    cumulative_loss_ha = cumsum(loss_ha)
+  ) %>%
+  ungroup()
+
+
+# Rejoin to spatial data
+nb_cumulative <- new_britain %>%
+  mutate(
+    province = stringr::str_remove(shapeName, " Province$")
+  ) %>%
+  left_join(forest_cum_year, by = "province")
+
+
+
+
+```
+
+```{r}
+#| eval: false
+#| echo: false
+
+<<<<<<< HEAD
+=======
+new_britain_anim <- new_britain %>%
+  mutate(
+    province = str_remove(shapeName, " Province$")
+  ) %>%
+  left_join(forest_cum_year, by = "province")
+
+
+p <- ggplot(new_britain_anim) +
+  geom_sf(
+    aes(fill = cumulative_loss_ha),
+    color = "black",
+    size = 0.4
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    direction = -1,
+    labels = comma
+  ) +
+  labs(
+    title = "Cumulative Forest Loss in New Britain",
+    subtitle = "Year: {frame_time}",
+    fill = "Cumulative Loss (ha)"
+  ) +
+  theme_minimal() +
+  transition_time(year) +
+  ease_aes("linear")
+
+p
+
+anim <- animate(
+  p,
+  nframes = length(unique(new_britain_anim$year)),
+  fps = 3,
+  width = 800,
+  height = 600,
+  renderer = gifski_renderer()
+)
+
+anim_save("forestloss.gif", anim)
+
+```
+
+```{r}
+#| eval: false
+#| echo: false
+
+>>>>>>> 98af69dd700820d72fdc75000e5dcb3d1aeb90f9
+new_britain_annual <- new_britain %>%
+  mutate(
+    province = str_remove(shapeName, " Province$")
+  ) %>%
+  left_join(forest_clean, by = "province")
+
+p_annual <- ggplot(new_britain_annual) +
+  geom_sf(
+    aes(fill = loss_ha),
+    color = "black",
+    size = 0.4
+  ) +
+  scale_fill_viridis_c(
+  limits = c(0, max(new_britain_annual$loss_ha, na.rm = TRUE)),
+  labels = comma
+) +
+  labs(
+    title = "Annual Forest Loss in New Britain",
+    subtitle = "Year: {frame_time}",
+    fill = "Forest Loss (ha)"
+  ) +
+  theme_minimal() +
+  transition_time(year) +
+  ease_aes("linear")
+
+p_annual
+
+anim_annual <- animate(
+  p_annual,
+  nframes = length(unique(new_britain_annual$year)),
+  fps = 3,
+  width = 800,
+  height = 600,
+  renderer = gifski_renderer()
+)
+
+anim_save(
+  "annual_forest_loss_new_britain.gif",
+  anim_annual
+)
+
+
+```
+
+**Get Province Forest Area**
+
+```{r}
+#| echo: false
+
+forest_area <- forest_nb %>%
+  filter(threshold == 0) %>%
+  select(
+    province = subnational1,
+    forest_area_ha = extent_2000_ha
+  ) %>%
+  distinct()
+
+
+forest_area
+
+forest_master <- forest_clean %>%
+  left_join(forest_area, by = "province") %>%
+  arrange(province, year) %>%
+  group_by(province) %>%
+  mutate(
+    # annual %
+    pct_loss = (loss_ha / forest_area_ha) * 100,
+
+    # cumulative ha
+    cumulative_loss_ha = cumsum(loss_ha),
+
+    # cumulative %
+    cumulative_pct_loss = cumsum(pct_loss)
+  ) %>%
+  ungroup()
+
+# Normalize annual forest loss (% of forest area)
+forest_pct <- forest_clean %>%
+  left_join(forest_area, by = "province") %>%
+  mutate(
+    pct_loss = (loss_ha / forest_area_ha) * 100
+  )
+
+forest_pct_cum <- forest_pct %>%
+  arrange(province, year) %>%
+  group_by(province) %>%
+  mutate(
+    cumulative_pct_loss = cumsum(pct_loss)
+  ) %>%
+  ungroup()
+
+
+new_britain_pct_annual <- new_britain %>%
+  mutate(
+    province = str_remove(shapeName, " Province$")
+  ) %>%
+  left_join(forest_pct, by = "province")
+
+new_britain_pct_cum <- new_britain %>%
+  mutate(
+    province = str_remove(shapeName, " Province$")
+  ) %>%
+  left_join(forest_pct_cum, by = "province")
+
+```
+
+```{r}
+#| eval: false
+#| echo: false
+
+p_pct_annual <- ggplot(new_britain_pct_annual) +
+  geom_sf(
+    aes(fill = pct_loss),
+    color = "black",
+    size = 0.4
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    labels = label_percent(scale = 1),
+    limits = c(0, max(forest_pct$pct_loss, na.rm = TRUE))
+  ) +
+  labs(
+    title = "Annual Forest Loss (% of Forest Area)",
+    subtitle = "Year: {frame_time}",
+    fill = "% Forest Lost"
+  ) +
+  theme_minimal() +
+  transition_time(year)
+
+anim_pct_annual <- gganimate::animate(
+  p_pct_annual,
+  fps = 3,
+  width = 800,
+  height = 600,
+  renderer = gganimate::gifski_renderer()
+)
+
+gganimate::anim_save("annual_pct_forest_loss.gif", animation = anim_pct_annual)
+
+```
+
+**Cumulative Forest Loss**
+
+```{r}
+#| eval: false
+#| echo: false
+p_pct_cum <- ggplot(new_britain_pct_cum) +
+  geom_sf(
+    aes(fill = cumulative_pct_loss),
+    color = "black",
+    size = 0.4
+  ) +
+  scale_fill_viridis_c(
+    option = "C",
+    labels = label_percent(scale = 1)
+  ) +
+  labs(
+    title = "Cumulative Forest Loss (% of Forest Area)",
+    subtitle = "Year: {frame_time}",
+    fill = "Cumulative % Lost"
+  ) +
+  theme_minimal() +
+  transition_time(year)
+
+anim_pct_cum <- gganimate::animate(
+  p_pct_cum,
+  fps = 3,
+  width = 800,
+  height = 600,
+  renderer = gganimate::gifski_renderer()
+)
+
+gganimate::anim_save("cumulative_pct_forest_loss.gif", animation = anim_pct_cum)
+
+```
+
+```{r}
+#| echo: false
+
+# Develop Shiny App
+# Chatbot were used for daignostics. 
+# Clean province names in shapefile
+nb_sf <- new_britain %>%
+  mutate(
+    province = str_remove(shapeName, " Province$")
+  )
+
+nb_all <- nb_sf %>%
+  left_join(forest_master, by = "province")
+
+# Join annual % loss
+nb_annual <- nb_sf %>%
+  left_join(forest_pct, by = "province")
+
+# Join cumulative % loss
+nb_cumulative <- nb_sf %>%
+  left_join(forest_pct_cum, by = "province")
+# ---- GLOBAL COLOR SCALE LIMITS ----
+
+# Annual loss (ha)
+annual_ha_limits <- range(nb_annual$loss_ha, na.rm = TRUE)
+
+# Cumulative loss (ha)
+cumulative_ha_limits <- range(
+  nb_cumulative$cumulative_loss_ha,
+  na.rm = TRUE,
+  finite = TRUE
+)
+
+
+# Annual % loss
+annual_pct_limits <- range(nb_annual$pct_loss, na.rm = TRUE)
+
+# Cumulative % loss
+cumulative_pct_limits <- range(nb_cumulative$cumulative_pct_loss, na.rm = TRUE)
+
+pal_annual_ha <- colorNumeric(
+  palette = "viridis",
+  domain = annual_ha_limits
+)
+
+pal_cumulative_ha <- leaflet::colorNumeric(
+  palette = "viridis",
+  domain = nb_cumulative$cumulative_loss_ha,
+  na.color = "transparent"
+)
+
+
+
+pal_annual_pct <- colorNumeric(
+  palette = "YlOrRd",
+  domain = annual_pct_limits
+)
+
+pal_cumulative_pct <- colorNumeric(
+  palette = "YlOrRd",
+  domain = cumulative_pct_limits
+)
+
+<<<<<<< HEAD
+saveRDS(nb_all, "nb_all.rds") # This will be used in Shiny App Code
+=======
+
+# Code User Interface 
+ui <- fluidPage(
+
+  titlePanel("Forest Loss in New Britain, Papua New Guinea"),
+
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput(
+        "year",
+        "Year:",
+        min = 2001,
+        max = 2023,
+        value = 2001,
+        sep = ""
+      )
+    ),
+
+    mainPanel(
+      tabsetPanel(
+
+        tabPanel(
+          "Annual Loss (ha)",
+          leafletOutput("map_annual_ha", height = 550)
+        ),
+
+        tabPanel(
+          "Cumulative Loss (ha)",
+          leafletOutput("map_cumulative_ha", height = 550)
+        ),
+
+        tabPanel(
+          "Annual Loss (%)",
+          leafletOutput("map_annual_pct", height = 550)
+        ),
+
+        tabPanel(
+          "Cumulative Loss (%)",
+          leafletOutput("map_cumulative_pct", height = 550)
+        )
+
+      )
+    )
+  )
+)
+# Create Server
+server <- function(input, output, session) {
+
+  # --- Annual forest loss (ha) ---
+  output$map_annual_ha <- renderLeaflet({
+
+    dat <- nb_all %>% filter(year == input$year)
+
+    pal <- leaflet::colorNumeric("viridis", domain = nb_all$loss_ha)
+
+    leaflet(dat) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal(loss_ha),
+        weight = 1,
+        color = "black",
+        fillOpacity = 0.75,
+        label = ~paste0(
+          province, ": ",
+          scales::comma(loss_ha), " ha"
+        )
+      ) %>%
+      addLegend(
+        pal = pal,
+        values = nb_all$loss_ha,
+        title = "Annual Forest Loss (ha)",
+        opacity = 0.8
+      )
+  })
+    # --- Cumulative forest loss (ha) ---
+  output$map_cumulative_ha <- renderLeaflet({
+
+    dat <- nb_all %>% filter(year == input$year)
+    pal <- leaflet::colorNumeric(
+    "viridis",
+    domain = nb_all$cumulative_loss_ha)
+
+    
+    leaflet(dat) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal(cumulative_loss_ha),
+        weight = 1,
+        color = "black",
+        fillOpacity = 0.75,
+        label = ~paste0(
+          province, ": ",
+          scales::comma(cumulative_loss_ha), " ha"
+        )
+      ) %>%
+      addLegend(
+        pal = pal,
+        values = nb_all$cumulative_loss_ha,
+        title = "Cumulative Forest Loss (ha)",
+        opacity = 0.8
+      )
+  })
+
+  # --- Annual forest loss (%) ---
+  output$map_annual_pct <- renderLeaflet({
+
+    dat <- nb_all %>% filter(year == input$year)
+    pal <- leaflet::colorNumeric(
+    "YlOrRd",
+    domain = nb_all$pct_loss)
+    leaflet(dat) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal(pct_loss),
+        weight = 1,
+        color = "black",
+        fillOpacity = 0.75,
+        label = ~paste0(
+          province, ": ",
+          scales::percent(pct_loss / 100, accuracy = 0.01)
+        )
+      ) %>%
+      addLegend(
+        pal = pal,
+        values = nb_all$pct_loss,
+        title = "% Forest Lost (Annual)",
+        opacity = 0.8
+      )
+  })
+  # --- Cumulative forest loss (%) ---
+  output$map_cumulative_pct <- renderLeaflet({
+
+    dat <- nb_all %>% filter(year == input$year)
+    pal <- leaflet::colorNumeric(
+    "YlOrRd",
+    domain = nb_all$cumulative_pct_loss)
+
+    leaflet(dat) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal(cumulative_pct_loss),
+        weight = 1,
+        color = "black",
+        fillOpacity = 0.75,
+        label = ~paste0(
+          province, ": ",
+          scales::percent(cumulative_pct_loss / 100, accuracy = 0.01)
+        )
+      ) %>%
+      addLegend(
+        pal = pal,
+        values = nb_all$cumulative_pct_loss,
+        title = "% Forest Lost (Cumulative)",
+        opacity = 0.8
+      )
+  })
+
+}
+
+
+```
+
+```{r}
+#| echo: false
+#| # Run Shiny App
+shinyApp(ui, server)
+
+>>>>>>> 98af69dd700820d72fdc75000e5dcb3d1aeb90f9
+```
+
+## Results
+
+### Annual Forest Loss
+
+Annual forest loss varied substantially over time in both provinces. West New Britain consistently exhibited higher annual forest loss than East New Britain, with several years showing pronounced spikes. These patterns are visible in the animated map below, which shows annual forest loss in hectares from 2001 to 2023.
+
+![](images/annual_forest_loss_new_britain.gif)
+
+### Cumulative Forest Loss
+
+When forest loss is aggregated cumulatively, differences between the two provinces become more pronounced. West New Britain experienced substantially greater cumulative forest loss over the study period, reflecting sustained deforestation pressure over time. Cumulative forest loss provides a clearer picture of long-term environmental change than annual values alone.
+
+![](images/forestloss.gif)
+
+### Normalized Forest Loss
+
+To account for differences in province size, forest loss was also expressed as a percentage of baseline forest area. Normalized results confirm that West New Britain not only lost more forest in absolute terms, but also experienced higher rates of forest loss relative to its total forest area. This suggests structural differences in land use and development pressures between the two provinces.
+
+![](images/annual_pct_forest_loss.gif){width="686"}
+
+![](images/cumulative_pct_forest_loss-01.gif)
+
+## Discussion
+
+Results indicate substantial and persistent deforestation on New Britain between 2001 and 2023, with West New Britain experiencing consistently higher forest loss than East New Britain. These differences likely reflect variation in land-use practices, including the expansion of plantation agriculture and infrastructure development.
+
+The use of both absolute and normalized metrics highlights the importance of considering scale when comparing regions. While annual forest loss fluctuates, cumulative and percentage-based measures reveal long-term trends that may be obscured in year-to-year analyses.
+
+Several limitations should be noted. Forest loss estimates are derived from satellite data and may be subject to classification error. Additionally, this analysis does not distinguish among drivers of deforestation, which could be explored in future work.
+
+## Conclusion
+
+This project demonstrates how R, Quarto, and Shiny can be used to analyze and communicate environmental change using spatial and temporal data. By focusing on New Britain, the analysis highlights meaningful sub national variation in deforestation patterns and illustrates the value of interactive visualization for exploring complex environmental data sets.
+
+Future extensions could incorporate land cover transitions, population data, or economic indicators to further investigate the drivers and consequences of deforestation on the island.
+
+## References
+
+Global Forest Watch. (2024). Tree cover loss data. <https://www.globalforestwatch.org/>\
+Humanitarian Data Exchange (HDX). Papua New Guinea administrative boundaries. <https://data.humdata.org/dataset/cod-ab-png>
